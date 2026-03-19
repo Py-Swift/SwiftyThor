@@ -293,8 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let width:  CGFloat = 800
-        let height: CGFloat = 600
+        let width:  CGFloat = 1800
+        let height: CGFloat = 900
         let rect = NSRect(x: 200, y: 200, width: width, height: height)
 
         window = NSWindow(
@@ -322,7 +322,7 @@ class SwiftyThorDemo: NSApplication {
     
     static func main() {
         do {
-            try ThorVGEngine.start(threads: 2)
+            try ThorVGEngine.start(threads: 4)
         } catch {
             fatalError("ThorVG engine init failed: \(error)")
         }
