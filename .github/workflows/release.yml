@@ -1,0 +1,61 @@
+name: Build & Upload Wheels
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write          # needed to upload release assets
+
+jobs:
+  build-macos:
+    name: Build wheels – macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14          # Apple Silicon runner
+            arch: arm64
+            cibw_archs: arm64
+          - os: macos-13          # Intel runner
+            arch: x86_64
+            cibw_archs: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install cibuildwheel
+        run: pip install cibuildwheel
+
+      - name: Build wheels
+        run: cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_BUILD: "cp313-macosx_${{ matrix.cibw_archs }}"
+
+      - name: Upload wheels as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+
+  upload-release:
+    name: Upload wheels to release
+    needs: [build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: Upload wheels as release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
