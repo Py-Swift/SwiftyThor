@@ -184,7 +184,14 @@ def _inject_openmp_cross_file(template: Path, output: Path,
             [f"-F{framework_dir}", "-framework", "libomp"],
         )
     else:
-        content = _inject_cross_list(content, "cpp_link_args", [str(libomp)])
+        # Provide both the .a path and -L<dir> so meson's own -fopenmp
+        # linker flag can also resolve libomp (needed on CI where no
+        # system libomp exists).
+        libomp_dir = str(libomp.parent)
+        content = _inject_cross_list(
+            content, "cpp_link_args",
+            [str(libomp), f"-L{libomp_dir}"],
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(content)
     print(f"  [openmp] Injected flags → {output}")
