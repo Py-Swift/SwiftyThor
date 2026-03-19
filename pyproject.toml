@@ -33,7 +33,7 @@ before-all = [
     "cd {project} && python3 build_thorvg.py macos",
 ]
 before-build = [
-    "cd {project} && swift build --product SwiftyThorDynamic -c release",
+    "cd {project} && swift build --product SwiftyThorDynamic -c release --arch ${SWIFTYTHOR_ARCH:-$(uname -m)}",
     "export CFLAGS=\"-isysroot $(xcrun --show-sdk-path)\"",
 ]
 # No delocate — setup.py bundles raw dylibs with corrected install names

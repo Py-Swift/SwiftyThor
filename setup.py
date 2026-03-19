@@ -36,9 +36,15 @@ def _macos_sdk_path() -> str | None:
         return None
 
 
+def _target_arch() -> str:
+    """Return the target architecture for the wheel being built."""
+    # SWIFTYTHOR_ARCH is set by CI (via CIBW_ENVIRONMENT); fall back to host.
+    return os.environ.get("SWIFTYTHOR_ARCH", platform.machine())
+
+
 def _find_spm_build_dir() -> Path:
     """Locate the SPM build products directory, preferring release over debug."""
-    arch = platform.machine()                               # x86_64 or arm64
+    arch = _target_arch()
     triple = f"{arch}-apple-macosx"
     spm_build = SWIFTYTHOR_ROOT / ".build"
 
@@ -90,8 +96,12 @@ INSTALL_NAME_REWRITES = {
 }
 
 
-def _run(cmd: list[str]) -> None:
-    subprocess.check_call(cmd)
+def _run(cmd: list[str], *, quiet: bool = False) -> None:
+    kwargs: dict = {}
+    if quiet:
+        kwargs["stdout"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.DEVNULL
+    subprocess.check_call(cmd, **kwargs)
 
 
 def _resolve_source(name: str) -> Path | None:
@@ -131,7 +141,7 @@ class build_ext(_build_ext):
             for old, new in INSTALL_NAME_REWRITES.items():
                 try:
                     _run(["install_name_tool", "-change", old, new,
-                          str(swift_dest)])
+                          str(swift_dest)], quiet=True)
                     print(f"  Rewrite: {old} → {new}")
                 except subprocess.CalledProcessError:
                     pass
@@ -139,7 +149,7 @@ class build_ext(_build_ext):
             # Ensure @loader_path rpath is present
             try:
                 _run(["install_name_tool", "-add_rpath", "@loader_path",
-                      str(swift_dest)])
+                      str(swift_dest)], quiet=True)
             except subprocess.CalledProcessError:
                 pass  # already present
 
@@ -148,16 +158,18 @@ class build_ext(_build_ext):
             dest = ext_dir / name
             if not dest.exists():
                 continue
-            _run(["install_name_tool", "-id", f"@rpath/{name}", str(dest)])
+            _run(["install_name_tool", "-id", f"@rpath/{name}", str(dest)],
+                 quiet=True)
             # Replace @executable_path/ → @loader_path if present,
             # otherwise add @loader_path
             try:
                 _run(["install_name_tool", "-rpath",
-                      "@executable_path/", "@loader_path", str(dest)])
+                      "@executable_path/", "@loader_path", str(dest)],
+                     quiet=True)
             except subprocess.CalledProcessError:
                 try:
                     _run(["install_name_tool", "-add_rpath",
-                          "@loader_path", str(dest)])
+                          "@loader_path", str(dest)], quiet=True)
                 except subprocess.CalledProcessError:
                     pass  # already correct
 
@@ -166,7 +178,7 @@ class build_ext(_build_ext):
         if so_path.exists():
             try:
                 _run(["install_name_tool", "-add_rpath", "@loader_path",
-                      str(so_path)])
+                      str(so_path)], quiet=True)
             except subprocess.CalledProcessError:
                 pass
 
