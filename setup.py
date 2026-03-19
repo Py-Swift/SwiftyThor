@@ -24,6 +24,18 @@ MACOS_DYLIBS = SWIFTYTHOR_ROOT / "output" / "macos"        # raw dylibs from bui
 HEADER_DIR = str(SWIFTYTHOR_ROOT / "Sources" / "CSwiftyThorEntry" / "include")
 
 
+def _macos_sdk_path() -> str | None:
+    """Return the macOS SDK path via xcrun, or None."""
+    try:
+        result = subprocess.run(
+            ["xcrun", "--show-sdk-path"],
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return None
+
+
 def _find_spm_build_dir() -> Path:
     """Locate the SPM build products directory, preferring release over debug."""
     arch = platform.machine()                               # x86_64 or arm64
@@ -165,11 +177,14 @@ ext = Extension(
     include_dirs=[HEADER_DIR],
     library_dirs=[str(SPM_BUILD_DIR)],
     libraries=["SwiftyThorDynamic"],
+    extra_compile_args=(
+        ["-isysroot", sdk] if (sdk := _macos_sdk_path()) else []
+    ),
     extra_link_args=[
         "-Wl,-rpath,@loader_path",
         "-framework", "AppKit",
         "-framework", "QuartzCore",
-    ],
+    ] + (["-isysroot", sdk] if sdk else []),
 )
 
 setup(

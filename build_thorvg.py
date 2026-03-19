@@ -9,8 +9,9 @@ Produces:
     output/libomp.xcframework     — libomp shared dylib (iOS)
     output/macos/                 — macOS fat dylibs (thorvg + ANGLE + libomp)
 
-Reuses the cross-compile infrastructure from thorvg-cython's
-build_thorvg.py (cross files, libomp, ANGLE download, patches).
+This script is **fully self-contained**: it downloads all external
+dependencies (thorvg source, ANGLE binaries, LLVM OpenMP) and bundles
+its own meson cross-compile files.
 
 Usage:
     python build_thorvg.py              # macOS + iOS
@@ -24,26 +25,50 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import textwrap
+import urllib.request
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 #  Paths
 # ---------------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).resolve().parent
-WORKSPACE  = SCRIPT_DIR.parent                         # thorvg-development/
-THORVG_SRC = WORKSPACE / "thorvg"                      # thorvg C++ source
-TOOLS_DIR  = WORKSPACE / "thorvg-cython" / "tools"     # reuse cross files etc.
-CROSS_DIR  = TOOLS_DIR / "cross"
-
-BUILD_ROOT = SCRIPT_DIR / "build"
-OUTPUT_DIR = SCRIPT_DIR / "output"
+SCRIPT_DIR  = Path(__file__).resolve().parent
+BUILD_ROOT  = SCRIPT_DIR / "build"
+OUTPUT_DIR  = SCRIPT_DIR / "output"
 PATCHES_DIR = SCRIPT_DIR / "patches"
+CROSS_DIR   = SCRIPT_DIR / "cross"            # bundled meson cross-compile files
 
 GPU = "angle"   # always — this is the Swift/Apple build
 
 # ANGLE pre-built binaries (from kivy/angle-builder)
 ANGLE_DIR  = BUILD_ROOT / "angle"
+
+# ThorVG source — downloaded automatically
+THORVG_VERSION = "1.0.0"
+THORVG_URL = (
+    f"https://github.com/thorvg/thorvg/archive/refs/tags/"
+    f"v{THORVG_VERSION}.tar.gz"
+)
+THORVG_SRC = BUILD_ROOT / "thorvg"
+
+# ANGLE pre-built binary version
+ANGLE_VERSION = "chromium-6943_rev1"
+ANGLE_BASE_URL = (
+    f"https://github.com/kivy/angle-builder/releases/download/{ANGLE_VERSION}"
+)
+
+# LLVM OpenMP for Apple cross-compile
+LLVM_VERSION = "19.1.7"
+LLVM_OPENMP_URL = (
+    f"https://github.com/llvm/llvm-project/releases/download/"
+    f"llvmorg-{LLVM_VERSION}/openmp-{LLVM_VERSION}.src.tar.xz"
+)
+LLVM_CMAKE_URL = (
+    f"https://github.com/llvm/llvm-project/releases/download/"
+    f"llvmorg-{LLVM_VERSION}/cmake-{LLVM_VERSION}.src.tar.xz"
+)
 
 # ---------------------------------------------------------------------------
 #  Helpers
@@ -79,6 +104,37 @@ def _xcode_dev() -> str:
 def _apple_sdk(platform_name: str) -> str:
     dev = _xcode_dev()
     return f"{dev}/Platforms/{platform_name}.platform/Developer/SDKs/{platform_name}.sdk"
+
+
+# ---------------------------------------------------------------------------
+#  Download ThorVG source
+# ---------------------------------------------------------------------------
+def _download_thorvg_source() -> None:
+    """Download thorvg source tarball and extract to THORVG_SRC."""
+    if THORVG_SRC.is_dir() and (THORVG_SRC / "meson.build").exists():
+        print(f"[thorvg] Source already present at {THORVG_SRC} — skipping")
+        return
+
+    BUILD_ROOT.mkdir(parents=True, exist_ok=True)
+    print(f"[thorvg] Downloading ThorVG v{THORVG_VERSION} ...")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        dl_path = tmp / "thorvg.tar.gz"
+        _run(["curl", "-fsSL", THORVG_URL, "-o", str(dl_path)])
+        print("[thorvg] Extracting ...")
+        _run(["tar", "-xzf", str(dl_path), "-C", str(tmp)])
+        extracted = tmp / f"thorvg-{THORVG_VERSION}"
+        if not extracted.is_dir():
+            # fallback
+            candidates = [d for d in tmp.iterdir() if d.is_dir() and "thorvg" in d.name.lower()]
+            if candidates:
+                extracted = candidates[0]
+            else:
+                sys.exit(f"ERROR: could not find extracted thorvg dir in {tmp}")
+        if THORVG_SRC.exists():
+            shutil.rmtree(THORVG_SRC)
+        shutil.copytree(str(extracted), str(THORVG_SRC))
+    print(f"[thorvg] Source ready at {THORVG_SRC}")
 
 
 # ---------------------------------------------------------------------------
@@ -136,29 +192,237 @@ def _inject_openmp_cross_file(template: Path, output: Path,
 
 
 # ---------------------------------------------------------------------------
-#  libomp  (delegates to thorvg-cython's build_thorvg.py helpers)
+#  libomp — download + cross-compile (inlined from thorvg-cython)
 # ---------------------------------------------------------------------------
+def _download_llvm_openmp(work_dir: Path) -> tuple[Path, Path]:
+    """Download LLVM openmp + cmake sources into *work_dir*.
+
+    Returns (openmp_src, cmake_src) paths.
+    """
+    openmp_src = work_dir / "openmp"
+    cmake_src = work_dir / "cmake"
+
+    if openmp_src.is_dir() and cmake_src.is_dir():
+        print("[libomp] LLVM openmp sources already present — skipping download")
+        return openmp_src, cmake_src
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    for url, name, dest in [
+        (LLVM_OPENMP_URL, f"openmp-{LLVM_VERSION}.src", openmp_src),
+        (LLVM_CMAKE_URL, f"cmake-{LLVM_VERSION}.src", cmake_src),
+    ]:
+        if dest.is_dir():
+            continue
+        print(f"[libomp] Downloading {url} ...")
+        resp = urllib.request.urlopen(url, timeout=120)
+        with tarfile.open(fileobj=resp, mode="r|xz") as tf:
+            for member in tf:
+                resolved = (work_dir / member.name).resolve()
+                if not str(resolved).startswith(str(work_dir.resolve())):
+                    raise RuntimeError(f"Unsafe tar member: {member.name}")
+                tf.extract(member, path=str(work_dir))
+        extracted = work_dir / name
+        if extracted.is_dir():
+            extracted.rename(dest)
+        else:
+            sys.exit(f"ERROR: expected {extracted} after extraction")
+
+    print(f"[libomp] Sources ready at {work_dir}")
+    return openmp_src, cmake_src
+
+
+def _build_libomp(work_dir: Path, *,
+                  system_name: str,
+                  sysroot: str,
+                  arch_cmake: str,
+                  arch_omp: str,
+                  deployment_target: str,
+                  deployment_flag: str,
+                  tag: str | None = None,
+                  target_triple: str | None = None,
+                  shared: bool = False) -> tuple[Path, Path]:
+    """Cross-compile libomp and return (lib, omp_h) paths."""
+    _ensure_tool("cmake")
+
+    build_tag = tag or f"{system_name.lower()}-{arch_cmake}"
+    if shared:
+        build_tag += "-shared"
+    build_dir = work_dir / f"build-{build_tag}"
+    lib_name = "libomp.dylib" if shared else "libomp.a"
+    lib_path = build_dir / "runtime" / "src" / lib_name
+    hdr_path = build_dir / "runtime" / "src" / "omp.h"
+
+    if lib_path.exists() and hdr_path.exists():
+        print(f"[libomp] {build_tag}: already built — skipping")
+        return lib_path, hdr_path
+
+    openmp_src = work_dir / "openmp"
+    cmake_src = work_dir / "cmake"
+
+    cc = shutil.which("clang") or "/usr/bin/clang"
+    cxx = shutil.which("clang++") or "/usr/bin/clang++"
+
+    print(f"[libomp] Building libomp for {build_tag} ...")
+    cmake_args = [
+        "cmake",
+        "-S", str(openmp_src),
+        "-B", str(build_dir),
+        "-DCMAKE_BUILD_TYPE=Release",
+        f"-DCMAKE_SYSTEM_NAME={system_name}",
+        f"-DCMAKE_OSX_SYSROOT={sysroot}",
+        f"-DCMAKE_OSX_ARCHITECTURES={arch_cmake}",
+        f"-DCMAKE_OSX_DEPLOYMENT_TARGET={deployment_target}",
+        f"-DCMAKE_C_COMPILER={cc}",
+        f"-DCMAKE_CXX_COMPILER={cxx}",
+        f"-DCMAKE_ASM_COMPILER={cc}",
+        f"-DLLVM_COMMON_CMAKE_UTILS={cmake_src}",
+        f"-DLIBOMP_ENABLE_SHARED={'ON' if shared else 'OFF'}",
+        f"-DLIBOMP_ARCH={arch_omp}",
+        "-DLIBOMP_OMPT_SUPPORT=OFF",
+        "-DLIBOMP_USE_HWLOC=OFF",
+        "-DLIBOMP_FORTRAN_MODULES=OFF",
+        "-DCMAKE_CROSSCOMPILING=TRUE",
+    ]
+
+    if target_triple:
+        for lang in ("C", "CXX", "ASM"):
+            cmake_args.append(f"-DCMAKE_{lang}_FLAGS=-target {target_triple}")
+
+    _run(cmake_args)
+    _run(["cmake", "--build", str(build_dir), "--config", "Release"])
+
+    if not lib_path.exists():
+        sys.exit(f"ERROR: libomp build failed — {lib_path} not found")
+
+    print(f"[libomp] {build_tag}: {lib_path} ({lib_path.stat().st_size} bytes)")
+    return lib_path, hdr_path
+
+
 def _prepare_libomp(targets: list[dict], *, shared: bool = False
                     ) -> dict[str, tuple[Path, Path]]:
-    """Calls the thorvg-cython build_thorvg module to build libomp."""
-    sys.path.insert(0, str(TOOLS_DIR))
-    from build_thorvg import _prepare_libomp_apple  # type: ignore
-    return _prepare_libomp_apple(THORVG_SRC, targets, shared=shared)
+    """Build libomp for multiple Apple targets."""
+    work_dir = THORVG_SRC / "libomp_build"
+    _download_llvm_openmp(work_dir)
+
+    results: dict[str, tuple[Path, Path]] = {}
+    for t in targets:
+        lib, hdr = _build_libomp(
+            work_dir,
+            system_name=t["system_name"],
+            sysroot=t["sysroot"],
+            arch_cmake=t["arch_cmake"],
+            arch_omp=t["arch_omp"],
+            deployment_target=t["deployment_target"],
+            deployment_flag=t["deployment_flag"],
+            tag=t.get("tag"),
+            target_triple=t.get("target_triple"),
+            shared=shared,
+        )
+        results[t["name"]] = (lib, hdr)
+
+    return results
 
 
 # ---------------------------------------------------------------------------
-#  ANGLE download + tvgGl patch
+#  ANGLE download (inlined from thorvg-cython)
 # ---------------------------------------------------------------------------
+def _download_angle(platform_name: str, output_dir: Path) -> None:
+    """Download pre-built ANGLE libraries from kivy/angle-builder."""
+    artifact_map = {
+        "macos-arm64": "angle-macos-arm64",
+        "macos-x64": "angle-macos-x64",
+        "macos-x86_64": "angle-macos-x64",
+        "macos-universal": "angle-macos-universal",
+        "macos-fat": "angle-macos-universal",
+        "ios": "angle-iphoneall-universal",
+        "iphoneall": "angle-iphoneall-universal",
+        "windows-x64": "angle-windows-x64",
+        "windows": "angle-windows-x64",
+    }
+
+    artifact = artifact_map.get(platform_name)
+    if not artifact:
+        sys.exit(
+            f"ERROR: Unknown ANGLE platform: {platform_name}\n"
+            f"Valid: {', '.join(sorted(artifact_map.keys()))}"
+        )
+
+    tarball = f"{artifact}.tar.gz"
+    url = f"{ANGLE_BASE_URL}/{tarball}"
+    angle_dir = output_dir / "angle"
+
+    print("=== ANGLE Download ===")
+    print(f"Version:  {ANGLE_VERSION}")
+    print(f"Platform: {platform_name}")
+    print(f"Artifact: {tarball}")
+    print(f"Output:   {angle_dir}")
+    print()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        dl_path = tmp / tarball
+
+        print(f">>> Downloading {url} ...")
+        _run(["curl", "-fsSL", url, "-o", str(dl_path)])
+        print("<<< Downloaded")
+
+        print(">>> Extracting...")
+        extract_dir = tmp / "extracted"
+        extract_dir.mkdir()
+        _run(["tar", "-xzf", str(dl_path), "-C", str(extract_dir)])
+        print("<<< Extracted")
+
+        extracted = extract_dir / artifact
+        if not extracted.is_dir():
+            extracted = extract_dir
+
+        if angle_dir.exists():
+            shutil.rmtree(angle_dir)
+        angle_dir.mkdir(parents=True, exist_ok=True)
+
+        if platform_name.startswith("ios") or platform_name == "iphoneall":
+            for xcfw in extracted.glob("*.xcframework"):
+                shutil.copytree(str(xcfw), str(angle_dir / xcfw.name))
+            inc = extracted / "include"
+            if inc.is_dir():
+                shutil.copytree(str(inc), str(angle_dir / "include"))
+            print()
+            print("=== ANGLE iOS Download Complete ===")
+            for xcfw in sorted(angle_dir.glob("*.xcframework")):
+                print(f"  {xcfw.name}")
+        elif platform_name.startswith("windows"):
+            for dll in extracted.glob("*.dll"):
+                shutil.copy2(str(dll), str(angle_dir / dll.name))
+            for lib in extracted.glob("*.lib"):
+                shutil.copy2(str(lib), str(angle_dir / lib.name))
+            inc = extracted / "include"
+            if inc.is_dir():
+                shutil.copytree(str(inc), str(angle_dir / "include"))
+            print()
+            print("=== ANGLE Windows Download Complete ===")
+            for f in sorted(angle_dir.glob("*.*")):
+                if f.is_file():
+                    print(f"  {f.name}")
+        else:
+            for dylib in extracted.glob("*.dylib"):
+                shutil.copy2(str(dylib), str(angle_dir / dylib.name))
+            inc = extracted / "include"
+            if inc.is_dir():
+                shutil.copytree(str(inc), str(angle_dir / "include"))
+            print()
+            print("=== ANGLE macOS Download Complete ===")
+            for f in sorted(angle_dir.glob("*.dylib")):
+                print(f"  {f.name}")
+
+
 def _download_angle_libs() -> None:
-    """Download pre-built ANGLE for macOS + iOS via thorvg-cython helper."""
-    sys.path.insert(0, str(TOOLS_DIR))
-    from build_thorvg import download_angle  # type: ignore
-
+    """Download pre-built ANGLE for macOS + iOS."""
     # macOS universal (arm64 + x86_64 fat dylibs)
     macos_angle = ANGLE_DIR / "macos"
     if not (macos_angle / "angle" / "libEGL.dylib").exists():
         print(">>> Downloading ANGLE for macOS...")
-        download_angle("macos-universal", macos_angle)
+        _download_angle("macos-universal", macos_angle)
     else:
         print("[angle] macOS ANGLE already present — skipping")
 
@@ -166,7 +430,7 @@ def _download_angle_libs() -> None:
     ios_angle = ANGLE_DIR / "ios"
     if not (ios_angle / "angle").exists():
         print(">>> Downloading ANGLE for iOS...")
-        download_angle("ios", ios_angle)
+        _download_angle("ios", ios_angle)
     else:
         print("[angle] iOS ANGLE already present — skipping")
 
@@ -592,16 +856,25 @@ def create_xcframeworks(*, macos_dylib: Path | None = None,
                     pass  # @loader_path already present
             print(f"  → {dest}  (install name: @rpath/{f.name})")
 
-    # ── ANGLE xcframeworks (iOS-only) ──────────────────────────
+    # ── ANGLE xcframeworks ──────────────────────────────────────
     ios_angle   = ANGLE_DIR / "ios"   / "angle"
+    macos_angle = ANGLE_DIR / "macos" / "angle"
 
     for lib_name in ("libEGL", "libGLESv2"):
-        print(f">>> Creating {lib_name}.xcframework (iOS-only)")
+        print(f">>> Creating {lib_name}.xcframework")
         angle_xcf = OUTPUT_DIR / f"{lib_name}.xcframework"
         if angle_xcf.exists():
             shutil.rmtree(angle_xcf)
 
         angle_args: list[str] = ["xcodebuild", "-create-xcframework"]
+
+        # macOS slice — wrap the fat dylib in a .framework
+        macos_dylib_path = macos_angle / f"{lib_name}.dylib"
+        if macos_dylib and macos_dylib_path.exists():
+            fw_dir = BUILD_ROOT / f"fw_angle_macos_{lib_name}"
+            _make_angle_framework(
+                macos_dylib_path, lib_name, fw_dir, min_os="11.0")
+            angle_args += ["-framework", str(fw_dir / f"{lib_name}.framework")]
 
         # iOS slices — from pre-built iOS xcframework
         ios_xcfw = ios_angle / f"{lib_name}.xcframework"
@@ -660,7 +933,7 @@ def main() -> None:
     args = parser.parse_args()
 
     print("ThorVG Swift xcframework builder")
-    print(f"  ThorVG source:  {THORVG_SRC}")
+    print(f"  ThorVG version: {THORVG_VERSION}")
     print(f"  Cross files:    {CROSS_DIR}")
     print(f"  GPU:            {GPU}")
     print(f"  Target:         {args.target}")
@@ -670,7 +943,8 @@ def main() -> None:
         print("Cleaning build/...")
         shutil.rmtree(BUILD_ROOT)
 
-    # Download ANGLE + apply patch before any builds
+    # Download thorvg source, ANGLE binaries, and apply patch
+    _download_thorvg_source()
     _download_angle_libs()
     _apply_angle_patch()
 

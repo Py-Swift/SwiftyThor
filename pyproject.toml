@@ -34,6 +34,7 @@ before-all = [
 ]
 before-build = [
     "cd {project} && swift build --product SwiftyThorDynamic -c release",
+    "export CFLAGS=\"-isysroot $(xcrun --show-sdk-path)\"",
 ]
 # No delocate — setup.py bundles raw dylibs with corrected install names
 repair-wheel-command = "cp {wheel} {dest_dir}/"
