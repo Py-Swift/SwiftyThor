@@ -15,10 +15,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14          # Apple Silicon runner
+          - os: macos-15          # Apple Silicon runner
             arch: arm64
             cibw_archs: arm64
-          - os: macos-13          # Intel runner
+          - os: macos-15          # Cross-compile x86_64 on Apple Silicon
             arch: x86_64
             cibw_archs: x86_64
 
