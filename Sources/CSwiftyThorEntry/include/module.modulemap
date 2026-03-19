@@ -1,0 +1,4 @@
+module CSwiftyThorEntry {
+    header "swiftythor_entry.h"
+    export *
+}

@@ -1,0 +1,7 @@
+module CThorVG {
+    header "thorvg_capi.h"
+    header "EGL/egl.h"
+    header "EGL/eglext.h"
+    header "EGL/eglext_angle.h"
+    export *
+}

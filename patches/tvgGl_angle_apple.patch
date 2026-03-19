@@ -1,0 +1,60 @@
+--- a/src/renderer/gl_engine/tvgGl.cpp	2026-03-19 10:59:33
++++ src/renderer/gl_engine/tvgGl.cpp	2026-03-19 10:59:51
+@@ -142,11 +142,30 @@
+ 
+ static bool _glLoad()
+ {
++#ifdef THORVG_GL_TARGET_GLES
++    if (!_libGL) {
++        _libGL = dlopen("libGLESv2.dylib", RTLD_LAZY);
++        if (_libGL) printf("[GL_ENGINE] Loaded libGLESv2.dylib (bare name)\n");
++        else printf("[GL_ENGINE] dlopen(libGLESv2.dylib) failed: %s\n", dlerror());
++    }
++    if (!_libGL) {
++        _libGL = dlopen("@rpath/libGLESv2.dylib", RTLD_LAZY);
++        if (_libGL) printf("[GL_ENGINE] Loaded @rpath/libGLESv2.dylib\n");
++        else printf("[GL_ENGINE] dlopen(@rpath/libGLESv2.dylib) failed: %s\n", dlerror());
++    }
++    if (!_libGL) {
++        TVGERR("GL_ENGINE", "Cannot find the gles library.");
++        return false;
++    }
++#else
+     if (!_libGL) _libGL = dlopen("/Library/Frameworks/OpenGL.framework/OpenGL", RTLD_LAZY);
+     if (!_libGL) _libGL = dlopen("/System/Library/Frameworks/OpenGL.framework/OpenGL", RTLD_LAZY);
+-    if (_libGL) return true;
+-    TVGERR("GL_ENGINE", "Cannot find gl library.");
+-    return false;
++    if (!_libGL) {
++        TVGERR("GL_ENGINE", "Cannot find gl library.");
++        return false;
++    }
++#endif
++    return true;
+ }
+ 
+ 
+@@ -850,6 +869,23 @@
+         }
+         tvgEglGetCurrentContext = (PFNEGLGETCURRENTCONTEXTPROC)GetProcAddress(_libEGL, "eglGetCurrentContext");
+         tvgEglMakeCurrent = (PFNEGLMAKECURRENTPROC)GetProcAddress(_libEGL, "eglMakeCurrent");
++    #elif defined(__APPLE__) || defined(__MACH__)
++        if (!_libEGL) {
++            _libEGL = dlopen("libEGL.dylib", RTLD_LAZY);
++            if (_libEGL) printf("[GL_ENGINE] Loaded libEGL.dylib (bare name)\n");
++            else printf("[GL_ENGINE] dlopen(libEGL.dylib) failed: %s\n", dlerror());
++        }
++        if (!_libEGL) {
++            _libEGL = dlopen("@rpath/libEGL.dylib", RTLD_LAZY);
++            if (_libEGL) printf("[GL_ENGINE] Loaded @rpath/libEGL.dylib\n");
++            else printf("[GL_ENGINE] dlopen(@rpath/libEGL.dylib) failed: %s\n", dlerror());
++        }
++        if (!_libEGL) {
++            TVGERR("GL_ENGINE", "Cannot find EGL library.");
++            return false;
++        }
++        tvgEglGetCurrentContext = (PFNEGLGETCURRENTCONTEXTPROC)dlsym(_libEGL, "eglGetCurrentContext");
++        tvgEglMakeCurrent = (PFNEGLMAKECURRENTPROC)dlsym(_libEGL, "eglMakeCurrent");
+     #else
+         if (!_libEGL) _libEGL = dlopen("libEGL.so.1", RTLD_LAZY);
+         if (!_libEGL) _libEGL = dlopen("libEGL.so", RTLD_LAZY);

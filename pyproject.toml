@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "Cython>=3.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swiftythor"
+version = "0.1.0"
+description = "Python bindings for SwiftyThor (ThorVG + ANGLE via Cython → C ABI → Swift)"
+requires-python = ">=3.13"
+
+[tool.setuptools]
+py-modules = []
+package-dir = {"" = "src"}
+
+# ── cibuildwheel ────────────────────────────────────────────────
+[tool.cibuildwheel]
+build = "cp313-*"
+skip = "pp* *-musllinux_* *-manylinux_i686"
+
+# Swift dylib must be built before the wheel
+# (CI should run `swift build --product SwiftyThorDynamic` first)
+before-build = ""
+
+# The extension links libSwiftyThorDynamic.dylib at runtime
+test-command = "python -c \"import swiftythor; print('swiftythor OK')\""
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "12.0" }
+# 1) build_thorvg.py produces raw macOS dylibs in output/macos/
+# 2) swift build produces libSwiftyThorDynamic.dylib
+before-all = [
+    "cd {project} && python3 build_thorvg.py macos",
+]
+before-build = [
+    "cd {project} && swift build --product SwiftyThorDynamic -c release",
+]
+# No delocate — setup.py bundles raw dylibs with corrected install names
+repair-wheel-command = "cp {wheel} {dest_dir}/"
+
+[tool.cibuildwheel.linux]
+# Linux: future — requires Swift toolchain + no AppKit (placeholder)
+archs = ["x86_64", "aarch64"]
+before-build = [
+    "cd {project} && swift build --product SwiftyThorDynamic -c release",
+]
+
+[tool.cibuildwheel.windows]
+# Windows: future — requires Swift toolchain + no AppKit (placeholder)
+archs = ["AMD64"]
