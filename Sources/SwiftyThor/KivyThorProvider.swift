@@ -5,9 +5,66 @@
 
 import CThorVG
 import CKivyThorProvider
+import AppKit
+
+
+// MARK: - App Init
+
+@_cdecl("ktp_app_init")
+public func ktp_app_init(_ embedded: Bool) {
+    #if os(macOS)
+    // Standalone (embedded=false): Python owns the process — bootstrap NSApplication.
+    // Embedded  (embedded=true) : host app already running — just wire the delegate.
+    // Always dispatches to main synchronously so windows can be created right after.
+    let block = { ThorApplication.setup(embedded: embedded) }
+    if Thread.isMainThread { block() } else { DispatchQueue.main.sync(execute: block) }
+    #elseif os(iOS)
+    // Standalone: UIApplicationMain is owned by Swift entry point — not applicable.
+    // Embedded: app already running, nothing to do beyond wiring the delegate.
+    #elseif os(Linux)
+    // Standalone: gtk_init(nil, nil) / g_application_run(...)
+    // Embedded:   host already called gtk_main() — just register callbacks.
+    #elseif os(Windows)
+    // Standalone: CoInitializeEx, register window class, start message pump.
+    // Embedded:   host Win32 message loop already running.
+    #elseif os(Android)
+    // Standalone: not applicable — Android always launches via Activity.
+    // Embedded:   ANativeActivity already set up, Python loaded as .so.
+    #else
+    // Unsupported platform
+    #endif
+}
 
 
 // MARK: - Window Lifecycle
+
+@_cdecl("ktp_engine_start")
+public func ktp_engine_start(_ threads: UInt32) {
+    #if os(macOS) || os(iOS)
+    let t = threads > 0 ? threads : 4
+    do {
+        try ThorVGEngine.start(threads: t)
+    } catch {
+        // Already started or engine error — not fatal, log and continue.
+        print("[KTP] ktp_engine_start: \(error)")
+    }
+    #elseif os(Linux)
+    // ThorVGEngine.start(threads: threads > 0 ? threads : 4)
+    #elseif os(Windows)
+    // ThorVGEngine.start(threads: threads > 0 ? threads : 4)
+    #endif
+}
+
+@_cdecl("ktp_engine_stop")
+public func ktp_engine_stop() {
+    #if os(macOS) || os(iOS)
+    ThorVGEngine.stop()
+    #elseif os(Linux)
+    // ThorVGEngine.stop()
+    #elseif os(Windows)
+    // ThorVGEngine.stop()
+    #endif
+}
 
 @_cdecl("ktp_window_create")
 public func ktp_window_create(
@@ -19,16 +76,48 @@ public func ktp_window_create(
     _ outH: UnsafeMutablePointer<Int32>?
 ) -> KtpWindow? {
     #if os(macOS)
-    // TODO: Create NSWindow, attach ThorVGRenderer, return opaque handle
-    // Example:
-    // let window = NSWindow(
-    //     contentRect: NSRect(x: Int(x), y: Int(y), width: Int(w), height: Int(h)),
-    //     styleMask: [.titled, borderless ? [] : .closable, resizable ? .resizable : []],
-    //     backing: .buffered, defer: false)
-    // if fullscreen { window.toggleFullScreen(nil) }
-    // let renderer = ThorVGRenderer(window: window)
-    // return Unmanaged.passRetained(renderer).toOpaque()
-    return nil
+    // Creates an NSWindow, wraps it in KtpWindowState, and returns a retained
+    // void* handle that Cython stores as KtpWindow.
+    var result: UnsafeMutableRawPointer? = nil
+
+    let block = {
+        var mask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
+        if resizable  { mask.insert(.resizable) }
+        if borderless { mask = [] }
+
+        let screenH = NSScreen.main?.frame.height ?? 768.0
+        let winX: CGFloat = x >= 0 ? CGFloat(x) : 200.0
+        // AppKit origin is bottom-left; Kivy/SDL uses top-left — flip Y.
+        let winY: CGFloat = y >= 0 ? screenH - CGFloat(y) - CGFloat(h) : 200.0
+        let rect = NSRect(x: winX, y: winY, width: CGFloat(w), height: CGFloat(h))
+
+        let win = NSWindow(
+            contentRect: rect,
+            styleMask: mask,
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "ThorVG"
+        win.contentView = ThorVGView()
+
+        switch state {
+        case 1: win.zoom(nil)           // maximized
+        case 2: win.miniaturize(nil)    // minimized
+        case 3: win.orderOut(nil)       // hidden
+        default: win.makeKeyAndOrderFront(nil)
+        }
+
+        if fullscreen { win.toggleFullScreen(nil) }
+
+        let contentSize = win.contentRect(forFrameRect: win.frame).size
+        outW?.pointee = Int32(contentSize.width)
+        outH?.pointee = Int32(contentSize.height)
+        
+        result = KtpWindowState(window: win).toOpaque()
+    }
+
+    if Thread.isMainThread { block() } else { DispatchQueue.main.sync(execute: block) }
+    return result
     #elseif os(iOS)
     // Example:
     // let window = UIWindow(frame: CGRect(x: Int(x), y: Int(y), width: Int(w), height: Int(h)))
@@ -69,15 +158,40 @@ public func ktp_window_create(
 
 @_cdecl("ktp_window_destroy")
 public func ktp_window_destroy(_ win: KtpWindow?) {
-    // TODO: Stop display link, close window, release state
+    #if os(macOS)
+    guard let ptr = win else { return }
+    let state = KtpWindowState.unretained(from: ptr)
+    // Close the window on the main thread, then release the Swift object.
+    let block = { state.window.close() }
+    if Thread.isMainThread { block() } else { DispatchQueue.main.async(execute: block) }
+    KtpWindowState.release(ptr)
+    #elseif os(iOS)
+    // Example:
+    // guard let ptr = win else { return }
+    // let state = KtpWindowState.unretained(from: ptr)
+    // state.window.isHidden = true
+    // KtpWindowState.release(ptr)
+    #elseif os(Linux)
+    // Example (GTK):
+    // if let ptr = win { gtk_widget_destroy(KtpWindowState.unretained(from: ptr).widget) }
+    // KtpWindowState.release(ptr)
+    #elseif os(Windows)
+    // Example: DestroyWindow(state.hwnd); KtpWindowState.release(ptr)
+    #elseif os(Android)
+    // Example: ANativeWindow_release(state.surface); KtpWindowState.release(ptr)
+    #else
+    // Unsupported platform
+    #endif
 }
 
 @_cdecl("ktp_window_resize")
 public func ktp_window_resize(_ win: KtpWindow?, _ w: Int32, _ h: Int32) {
     #if os(macOS)
-    // Example:
-    //     renderer.window.setContentSize(NSSize(width: Int(w), height: Int(h)))
-
+    guard let ptr = win else { return }
+    let state = KtpWindowState.unretained(from: ptr)
+    let size = NSSize(width: Int(w), height: Int(h))
+    let block = { state.window.setContentSize(size) }
+    if Thread.isMainThread { block() } else { DispatchQueue.main.async(execute: block) }
     #elseif os(iOS)
     // Example:
     //     renderer.view.frame.size = CGSize(width: Int(w), height: Int(h))
@@ -442,6 +556,8 @@ public func ktp_window_set_pos(
     _ y: Int32
 ) {
     // TODO: window.setFrameOrigin(...)
+    print("Swift set_pos", x, y)
+    NSApplication.shared.keyWindow?.contentView?.frame.origin = .init(x: Int(x), y: Int(y))
 }
 
 @_cdecl("ktp_window_get_pos")

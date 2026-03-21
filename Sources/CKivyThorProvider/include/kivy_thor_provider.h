@@ -32,8 +32,37 @@ extern "C" {
 #endif
 
 /// Opaque handle to a window.  Cython holds this; Swift owns the internals.
-/// Supports multiple windows — each has its own canvas, callbacks, etc.
-typedef struct _KtpWindow *KtpWindow;
+/// void* so Swift can use Unmanaged<KtpWindowState> and pass objects directly.
+typedef void *KtpWindow;
+
+// ============================================================================
+// MARK: - App Init
+// ============================================================================
+
+/// Bootstrap the platform application runtime.
+/// Call this once from Python/Cython before creating any windows.
+///
+/// @param embedded
+///   false — standalone mode: Python owns the process.  Swift bootstraps
+///           NSApplication, fires the AppDelegate, and starts ThorVG.
+///   true  — embedded mode: NSApplication is already running (launched from
+///           Xcode / a host app).  Swift skips NSApplication init and only
+///           wires the AppDelegate + starts ThorVG if not already done.
+void ktp_app_init(bool embedded);
+
+// ============================================================================
+// MARK: - Engine Lifecycle
+// ============================================================================
+
+/// Start the ThorVG engine with the given number of worker threads.
+/// Safe to call more than once — subsequent calls are no-ops if already running.
+/// Must be called before creating any windows or using the canvas.
+/// @param threads  Worker thread count (0 = auto / use a sensible default).
+void ktp_engine_start(uint32_t threads);
+
+/// Stop the ThorVG engine and release its resources.
+/// Call on app shutdown.  Safe to call even if the engine was never started.
+void ktp_engine_stop(void);
 
 // ============================================================================
 // MARK: - Window Lifecycle

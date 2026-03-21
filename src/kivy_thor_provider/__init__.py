@@ -3,6 +3,4 @@
 # The low-level C⟷Cython wrapper lives in _ktp.pyx / _ktp.pxd.
 # The Python-level WindowThor class (≈ WindowSDL) will import from here.
 
-from kivy_thor_provider._ktp import _KtpWindowStorage
-
-__all__ = ['_KtpWindowStorage']
+from kivy_thor_provider._ktp import *

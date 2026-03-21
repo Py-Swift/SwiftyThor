@@ -18,10 +18,15 @@ cdef extern from "thorvg_capi.h":
 
 cdef extern from "kivy_thor_provider.h":
 
-    # --- Opaque window handle ---
-    ctypedef struct _KtpWindow:
-        pass
-    ctypedef _KtpWindow *KtpWindow
+    # --- Opaque window handle (void* — Swift uses Unmanaged<KtpWindowState>) ---
+    ctypedef void *KtpWindow
+
+    # --- App init ---
+    void ktp_app_init(bint embedded) nogil
+
+    # --- Engine lifecycle ---
+    void ktp_engine_start(unsigned int threads) nogil
+    void ktp_engine_stop() nogil
 
     # --- Window lifecycle ---
     KtpWindow ktp_window_create(int x, int y,

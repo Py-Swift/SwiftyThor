@@ -1,3 +1,13 @@
+//
+//  ThorVGView.swift
+//  SwiftyThor
+//
+//  Created by CodeBuilder on 21/03/2026.
+//
+import AppKit
+import CThorVG
+import CKivyThorProvider
+
 final class ThorVGView: NSView {
     private var renderer: ThorVGRenderer?
     private var displayLink: CVDisplayLink?
@@ -247,6 +257,7 @@ final class ThorVGView: NSView {
 
         CVDisplayLinkStart(link)
         print("[Demo] Display link started")
+        
     }
 
     deinit {

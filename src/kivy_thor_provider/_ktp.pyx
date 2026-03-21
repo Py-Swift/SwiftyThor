@@ -10,6 +10,82 @@ from collections import deque
 
 
 # =============================================================================
+# Module-level app bootstrap
+# =============================================================================
+
+def app_init(bint embedded=False):
+    """Bootstrap the platform application runtime (call once before any window).
+
+    Parameters
+    ----------
+    embedded : bool, default False
+        False — standalone mode: Python owns the process.  Swift bootstraps
+                NSApplication and starts ThorVG.
+        True  — embedded mode: the host app's NSApplication is already running
+                (e.g. launched from Xcode).  Swift skips NSApplication init
+                and only wires the AppDelegate / ThorVG engine.
+    """
+    ktp_app_init(embedded)
+
+
+def engine_start(unsigned int threads=4):
+    """Start the ThorVG engine with the given number of worker threads.
+
+    Safe to call more than once — subsequent calls are no-ops on the Swift side.
+    When using ``app_init()`` in standalone mode the engine is normally started
+    automatically via the AppDelegate.  Call this explicitly when you need
+    control over thread count, or in embedded mode before creating windows.
+
+    Parameters
+    ----------
+    threads : int, default 4
+        Worker thread count (0 = let Swift pick a default).
+    """
+    ktp_engine_start(threads)
+
+
+def engine_stop():
+    """Stop the ThorVG engine and release its resources.
+
+    Called automatically by AppDelegate on app shutdown.  Only call this
+    manually if you need to shut down ThorVG before the process exits.
+    """
+    ktp_engine_stop()
+
+
+def window_create(x=None, y=None, width=800, height=600,
+                  bint borderless=False, bint fullscreen=False,
+                  bint resizable=True, state=None):
+    """Create a native window and return a ready-to-use _KtpWindowStorage.
+
+    This is the normal entry point from Python.  You don't need to touch
+    _KtpWindowStorage directly — just call this, then attach callbacks
+    and call poll() in your event loop.
+
+    Parameters
+    ----------
+    x, y        : int or None  — initial position; None lets the OS decide
+    width       : int          — initial width  (default 800)
+    height      : int          — initial height (default 600)
+    borderless  : bool         — no title bar / frame (default False)
+    fullscreen  : bool         — start fullscreen (default False)
+    resizable   : bool         — window can be resized (default True)
+    state       : str or None  — 'maximized' | 'minimized' | 'hidden' | None
+
+    Returns
+    -------
+    _KtpWindowStorage
+        Wrapper around the native window handle with all callbacks
+        pre-registered.  Actual (w, h) can differ from requested when the
+        window manager adjusts the size — read storage.window_size after.
+    """
+    cdef _KtpWindowStorage storage = _KtpWindowStorage()
+    storage.setup_window(x, y, width, height, borderless, fullscreen,
+                         resizable, state)
+    return storage
+
+
+# =============================================================================
 # Module-level callback trampolines  (called from Swift without GIL)
 # =============================================================================
 # Each one acquires the GIL, casts `ud` to _KtpWindowStorage, and either
@@ -398,6 +474,7 @@ cdef class _KtpWindowStorage:
     def set_window_pos(self, x, y):
         cdef int _x = x if x is not None else -1
         cdef int _y = y if y is not None else -1
+        print("KTP set_window_pos", _x, _y)
         ktp_window_set_pos(self._win, _x, _y)
 
     def get_window_pos(self):

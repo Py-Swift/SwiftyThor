@@ -297,15 +297,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let height: CGFloat = 900
         let rect = NSRect(x: 200, y: 200, width: width, height: height)
 
-        window = NSWindow(
-            contentRect: rect,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "SwiftyThor — ThorVG + ANGLE (Metal)"
-        window.contentView = ThorVGView(frame: NSRect(origin: .zero, size: rect.size))
-        window.makeKeyAndOrderFront(nil)
+//        window = NSWindow(
+//            contentRect: rect,
+//            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+//            backing: .buffered,
+//            defer: false
+//        )
+//        window.title = "SwiftyThor — ThorVG + ANGLE (Metal)"
+//        window.contentView = ThorVGView(frame: NSRect(origin: .zero, size: rect.size))
+//        window.makeKeyAndOrderFront(nil)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
