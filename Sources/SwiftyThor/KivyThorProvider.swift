@@ -76,29 +76,24 @@ public func ktp_window_destroy(_ win: KtpWindow?) {
 public func ktp_window_resize(_ win: KtpWindow?, _ w: Int32, _ h: Int32) {
     #if os(macOS)
     // Example:
-    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
     //     renderer.window.setContentSize(NSSize(width: Int(w), height: Int(h)))
-    // }
+
     #elseif os(iOS)
     // Example:
-    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
     //     renderer.view.frame.size = CGSize(width: Int(w), height: Int(h))
-    // }
+
     #elseif os(Linux)
     // Example (GTK):
-    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
     //     gtk_window_resize(renderer.widget, Int32(w), Int32(h))
-    // }
+
     #elseif os(Windows)
     // Example (WinSDK):
-    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
     //     SetWindowPos(renderer.hwnd, nil, 0, 0, Int32(w), Int32(h), SWP_NOMOVE | SWP_NOZORDER)
-    // }
+    
     #elseif os(Android)
     // Example (NDK):
-    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
     //     renderer.surfaceHolder.setFixedSize(w, h)
-    // }
+    
     #else
     // Unsupported platform
     #endif
