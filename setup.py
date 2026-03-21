@@ -22,6 +22,8 @@ SWIFTYTHOR_ROOT = HERE                                      # SwiftyThor/
 MACOS_DYLIBS = SWIFTYTHOR_ROOT / "output" / "macos"        # raw dylibs from build_thorvg.py
 
 HEADER_DIR = str(SWIFTYTHOR_ROOT / "Sources" / "CSwiftyThorEntry" / "include")
+KTP_HEADER_DIR = str(SWIFTYTHOR_ROOT / "Sources" / "CKivyThorProvider" / "include")
+TVG_HEADER_DIR = str(SWIFTYTHOR_ROOT / "Sources" / "CThorVG" / "include")
 
 
 def _macos_sdk_path() -> str | None:
@@ -182,6 +184,17 @@ class build_ext(_build_ext):
             except subprocess.CalledProcessError:
                 pass
 
+        # ── Fix _ktp.so: rpath to find dylibs in parent dir ───
+        ktp_ext_path = self.get_ext_fullpath("kivy_thor_provider._ktp")
+        ktp_so = Path(ktp_ext_path)
+        if ktp_so.exists():
+            for rp in ("@loader_path", "@loader_path/.."):
+                try:
+                    _run(["install_name_tool", "-add_rpath", rp,
+                          str(ktp_so)], quiet=True)
+                except subprocess.CalledProcessError:
+                    pass
+
 
 ext = Extension(
     "swiftythor",
@@ -199,7 +212,25 @@ ext = Extension(
     ] + (["-isysroot", sdk] if sdk else []),
 )
 
+ktp_ext = Extension(
+    "kivy_thor_provider._ktp",
+    sources=["src/kivy_thor_provider/_ktp.pyx"],
+    include_dirs=[KTP_HEADER_DIR, TVG_HEADER_DIR],
+    library_dirs=[str(SPM_BUILD_DIR)],
+    libraries=["SwiftyThorDynamic"],
+    extra_compile_args=(
+        ["-isysroot", sdk] if (sdk := _macos_sdk_path()) else []
+    ),
+    extra_link_args=[
+        "-Wl,-rpath,@loader_path",
+        "-framework", "AppKit",
+        "-framework", "QuartzCore",
+    ] + (["-isysroot", sdk] if sdk else []),
+)
+
 setup(
-    ext_modules=cythonize([ext], language_level="3"),
+    ext_modules=cythonize([ext, ktp_ext], language_level="3"),
+    packages=["kivy_thor_provider"],
+    package_dir={"": "src"},
     cmdclass={"build_ext": build_ext},
 )

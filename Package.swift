@@ -49,10 +49,18 @@ let package = Package(
             publicHeadersPath: "include"
         ),
 
+        // ── C header for kivy_thor_provider (Kivy window bridge) ──
+        .target(
+            name: "CKivyThorProvider",
+            dependencies: ["CThorVG"],
+            path: "Sources/CKivyThorProvider",
+            publicHeadersPath: "include"
+        ),
+
         // ── Swift wrapper (includes @_cdecl implementations) ──
         .target(
             name: "SwiftyThor",
-            dependencies: ["CThorVG", "CSwiftyThorEntry"],
+            dependencies: ["CThorVG", "CSwiftyThorEntry", "CKivyThorProvider"],
             path: "Sources/SwiftyThor"
         ),
 

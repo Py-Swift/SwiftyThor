@@ -10,6 +10,7 @@ requires-python = ">=3.13"
 
 [tool.setuptools]
 py-modules = []
+packages = ["kivy_thor_provider"]
 package-dir = {"" = "src"}
 
 # ── cibuildwheel ────────────────────────────────────────────────
