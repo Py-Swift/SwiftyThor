@@ -18,8 +18,53 @@ public func ktp_window_create(
     _ outW: UnsafeMutablePointer<Int32>?,
     _ outH: UnsafeMutablePointer<Int32>?
 ) -> KtpWindow? {
+    #if os(macOS)
     // TODO: Create NSWindow, attach ThorVGRenderer, return opaque handle
+    // Example:
+    // let window = NSWindow(
+    //     contentRect: NSRect(x: Int(x), y: Int(y), width: Int(w), height: Int(h)),
+    //     styleMask: [.titled, borderless ? [] : .closable, resizable ? .resizable : []],
+    //     backing: .buffered, defer: false)
+    // if fullscreen { window.toggleFullScreen(nil) }
+    // let renderer = ThorVGRenderer(window: window)
+    // return Unmanaged.passRetained(renderer).toOpaque()
     return nil
+    #elseif os(iOS)
+    // Example:
+    // let window = UIWindow(frame: CGRect(x: Int(x), y: Int(y), width: Int(w), height: Int(h)))
+    // let vc = UIViewController()
+    // window.rootViewController = vc
+    // window.makeKeyAndVisible()
+    // let renderer = ThorVGRenderer(view: vc.view)
+    // return Unmanaged.passRetained(renderer).toOpaque()
+    return nil
+    #elseif os(Linux)
+    // Example (Swift w/ GTK):
+    // gtk_init(nil, nil)
+    // let window = gtk_window_new(GTK_WINDOW_TOPLEVEL)
+    // gtk_window_set_default_size(window, Int32(w), Int32(h))
+    // let renderer = ThorVGRenderer(widget: window)
+    // return UnsafeMutableRawPointer(Unmanaged.passRetained(renderer).toOpaque())
+    return nil
+    #elseif os(Windows)
+    // Example (Swift w/ WinSDK):
+    // let hwnd = CreateWindowExW(
+    //     0, L"ThorVGWndClass", L"ThorVG", WS_OVERLAPPEDWINDOW,
+    //     Int32(x), Int32(y), Int32(w), Int32(h),
+    //     nil, nil, hInstance, nil)
+    // let renderer = ThorVGRenderer(hwnd: hwnd)
+    // return UnsafeMutableRawPointer(Unmanaged.passRetained(renderer).toOpaque())
+    return nil
+    #elseif os(Android)
+    // Example (Kotlin/NDK):
+    // val surface = ANativeWindow_fromSurface(env, surfaceObj)
+    // val renderer = ThorVGRenderer(surface)
+    // return renderer.nativeHandle
+    return nil
+    #else
+    // Unsupported platform
+    return nil
+    #endif
 }
 
 @_cdecl("ktp_window_destroy")
@@ -29,7 +74,34 @@ public func ktp_window_destroy(_ win: KtpWindow?) {
 
 @_cdecl("ktp_window_resize")
 public func ktp_window_resize(_ win: KtpWindow?, _ w: Int32, _ h: Int32) {
-    // TODO: setContentSize on the NSWindow
+    #if os(macOS)
+    // Example:
+    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
+    //     renderer.window.setContentSize(NSSize(width: Int(w), height: Int(h)))
+    // }
+    #elseif os(iOS)
+    // Example:
+    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
+    //     renderer.view.frame.size = CGSize(width: Int(w), height: Int(h))
+    // }
+    #elseif os(Linux)
+    // Example (GTK):
+    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
+    //     gtk_window_resize(renderer.widget, Int32(w), Int32(h))
+    // }
+    #elseif os(Windows)
+    // Example (WinSDK):
+    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
+    //     SetWindowPos(renderer.hwnd, nil, 0, 0, Int32(w), Int32(h), SWP_NOMOVE | SWP_NOZORDER)
+    // }
+    #elseif os(Android)
+    // Example (NDK):
+    // if let renderer = win.flatMap({ Unmanaged<ThorVGRenderer>.fromOpaque($0).takeUnretainedValue() }) {
+    //     renderer.surfaceHolder.setFixedSize(w, h)
+    // }
+    #else
+    // Unsupported platform
+    #endif
 }
 
 
