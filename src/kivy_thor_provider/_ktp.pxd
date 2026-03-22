@@ -2,18 +2,7 @@
 # distutils: language = c
 
 from libc.stdint cimport int32_t, int64_t, uint8_t
-
-cdef extern from "thorvg_capi.h":
-    ctypedef struct _Tvg_Canvas:
-        pass
-    ctypedef _Tvg_Canvas *Tvg_Canvas
-
-    ctypedef struct _Tvg_Paint:
-        pass
-    ctypedef _Tvg_Paint *Tvg_Paint
-
-    ctypedef int Tvg_Result
-    int TVG_RESULT_SUCCESS
+from thorvg_cython.cthorvg cimport Tvg_Canvas, Tvg_Paint
 
 
 cdef extern from "kivy_thor_provider.h":
@@ -40,7 +29,7 @@ cdef extern from "kivy_thor_provider.h":
     void ktp_window_resize(KtpWindow win, int width, int height) nogil
 
     # --- Frame callback ---
-    ctypedef void (*KtpFrameCb)(double dt, void *ud)
+    ctypedef void (*KtpFrameCb)(void *canvas, double dt, void *ud)
     void ktp_window_set_frame_cb(KtpWindow win, KtpFrameCb cb, void *ud) nogil
 
     # --- Mouse callbacks ---
@@ -162,3 +151,15 @@ cdef extern from "kivy_thor_provider.h":
     # --- ThorVG canvas ---
     Tvg_Canvas ktp_window_get_canvas(KtpWindow win) nogil
     void ktp_window_get_canvas_size(KtpWindow win, int *out_w, int *out_h) nogil
+
+    # --- Root widget ---
+    ctypedef void (*KtpWidgetCanvasDrawCb)(void *obj, void *canvas)
+    ctypedef void (*KtpWidgetDestroyCb)(void *obj)
+
+    ctypedef struct KtpRootWidget:
+        void                 *obj
+        KtpWidgetCanvasDrawCb canvas_draw
+        KtpWidgetDestroyCb    destroy
+
+    void ktp_window_add_root_widget(KtpWindow win, KtpRootWidget widget) nogil
+    void ktp_window_remove_root_widget(KtpWindow win, void *obj) nogil

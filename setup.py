@@ -25,6 +25,23 @@ HEADER_DIR = str(SWIFTYTHOR_ROOT / "Sources" / "CSwiftyThorEntry" / "include")
 KTP_HEADER_DIR = str(SWIFTYTHOR_ROOT / "Sources" / "CKivyThorProvider" / "include")
 TVG_HEADER_DIR = str(SWIFTYTHOR_ROOT / "Sources" / "CThorVG" / "include")
 
+# Source root — Cython needs this to resolve cross-package cimports
+SRC_DIR = str(SWIFTYTHOR_ROOT / "src")
+
+# Kivy site-packages dir — for `from kivy._event cimport EventDispatcher`
+try:
+    import kivy as _kivy
+    KIVY_SITE_PACKAGES = str(Path(_kivy.__file__).parent.parent)
+except ImportError:
+    KIVY_SITE_PACKAGES = None
+
+# thorvg_cython site-packages dir — for future cimports from thorvg_cython
+try:
+    import thorvg_cython as _tvgcy
+    THORVG_CYTHON_SITE_PACKAGES = str(Path(_tvgcy.__file__).parent.parent)
+except ImportError:
+    THORVG_CYTHON_SITE_PACKAGES = None
+
 
 def _macos_sdk_path() -> str | None:
     """Return the macOS SDK path via xcrun, or None."""
@@ -184,14 +201,22 @@ class build_ext(_build_ext):
             except subprocess.CalledProcessError:
                 pass
 
-        # ── Fix _ktp.so: rpath to find dylibs in parent dir ───
-        ktp_ext_path = self.get_ext_fullpath("kivy_thor_provider._ktp")
-        ktp_so = Path(ktp_ext_path)
-        if ktp_so.exists():
-            for rp in ("@loader_path", "@loader_path/.."):
+        # ── Fix all kivy_thor_provider .so files ───────────────
+        for mod in [
+            "kivy_thor_provider._ktp",
+            "kivy_thor_provider.graphics.instructions",
+            "kivy_thor_provider.graphics.canvas",
+            "kivy_thor_provider.uix.screenmanager",
+            # widget.py and __init__.py are pure Python — no .so to fix
+        ]:
+            so_path = Path(self.get_ext_fullpath(mod))
+            if not so_path.exists():
+                continue
+            for rp in ("@loader_path", "@loader_path/..",
+                       "@loader_path/../.."):
                 try:
                     _run(["install_name_tool", "-add_rpath", rp,
-                          str(ktp_so)], quiet=True)
+                          str(so_path)], quiet=True)
                 except subprocess.CalledProcessError:
                     pass
 
@@ -228,9 +253,60 @@ ktp_ext = Extension(
     ] + (["-isysroot", sdk] if sdk else []),
 )
 
+# ── graphics + uix extensions ────────────────────────────────────────
+
+def _ext_include_dirs():
+    """Build include_dirs for graphics/uix Cython extensions."""
+    dirs = [SRC_DIR, TVG_HEADER_DIR]
+    if KIVY_SITE_PACKAGES:
+        dirs.append(KIVY_SITE_PACKAGES)
+    if THORVG_CYTHON_SITE_PACKAGES:
+        dirs.append(THORVG_CYTHON_SITE_PACKAGES)
+    return dirs
+
+
+_ext_compile_args = (
+    ["-isysroot", sdk] if (sdk := _macos_sdk_path()) else []
+)
+
+_ext_link_args = ["-Wl,-rpath,@loader_path"] + (
+    ["-isysroot", sdk] if (sdk := _macos_sdk_path()) else []
+)
+
+# (package, module)  —  widget.py and __init__.py are pure Python, skip them
+_cython_modules = [
+    ("kivy_thor_provider.graphics", "instructions"),
+    ("kivy_thor_provider.graphics", "canvas"),
+    ("kivy_thor_provider.uix",      "screenmanager"),
+]
+
+cython_exts = [
+    Extension(
+        f"{pkg}.{mod}",
+        sources=[f"src/{pkg.replace('.', '/')}/{mod}.pyx"],
+        include_dirs=_ext_include_dirs(),
+        extra_compile_args=_ext_compile_args,
+        extra_link_args=_ext_link_args,
+    )
+    for pkg, mod in _cython_modules
+]
+
 setup(
-    ext_modules=cythonize([ext, ktp_ext], language_level="3"),
-    packages=["kivy_thor_provider"],
+    ext_modules=cythonize(
+        [ext, ktp_ext, *cython_exts],
+        language_level="3",
+        include_path=[SRC_DIR],
+    ),
+    packages=[
+        "kivy_thor_provider",
+        "kivy_thor_provider.graphics",
+        "kivy_thor_provider.uix",
+    ],
     package_dir={"": "src"},
     cmdclass={"build_ext": build_ext},
+    package_data={
+        "kivy_thor_provider":          ["*.pxd", "*.pyi"],
+        "kivy_thor_provider.graphics": ["*.pxd", "*.pyi"],
+        "kivy_thor_provider.uix":      ["*.pxd", "*.pyi"],
+    },
 )

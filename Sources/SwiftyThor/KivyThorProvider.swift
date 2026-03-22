@@ -827,3 +827,24 @@ public func ktp_window_get_canvas_size(
 ) {
     // TODO: Return pixel-size of the canvas backing
 }
+
+// MARK: - Root Widget
+
+@_cdecl("ktp_window_add_root_widget")
+public func ktp_window_add_root_widget(_ win: KtpWindow?, _ widget: KtpRootWidget) {
+    print(win ?? "no window was passed")
+    guard let win else { return }
+    let state = KtpWindowState.unretained(from: win)
+    state.rootWidgets.append(widget)
+    print(state.rootWidgets)
+}
+
+@_cdecl("ktp_window_remove_root_widget")
+public func ktp_window_remove_root_widget(_ win: KtpWindow?, _ obj: UnsafeMutableRawPointer?) {
+    guard let win else { return }
+    let state = KtpWindowState.unretained(from: win)
+    if let idx = state.rootWidgets.firstIndex(where: { $0.obj == obj }) {
+        let widget = state.rootWidgets.remove(at: idx)
+        widget.destroy?(widget.obj)
+    }
+}

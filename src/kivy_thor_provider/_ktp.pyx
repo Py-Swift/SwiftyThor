@@ -7,6 +7,11 @@
 
 from libc.stdint cimport uintptr_t, int64_t, uint8_t
 from collections import deque
+from cpython.object cimport PyObject
+from cpython.ref cimport Py_INCREF, Py_DECREF
+from thorvg_cython.cthorvg cimport Tvg_Canvas
+from thorvg_cython.thorvg cimport Canvas
+from kivy_thor_provider.graphics.canvas cimport ThorCanvas
 
 
 # =============================================================================
@@ -86,6 +91,41 @@ def window_create(x=None, y=None, width=800, height=600,
 
 
 # =============================================================================
+# Root widget trampolines  (C function pointers stored in KtpRootWidget)
+# =============================================================================
+
+cdef public void ktp_widget_canvas_draw(void *obj, void *c) noexcept with gil:
+    """Called by Swift each frame for each registered root widget."""
+    cdef ThorCanvas wid_canvas = (<object>obj)._canvas
+    wid_canvas.draw_canvas(<Canvas>c)
+
+
+cdef public void ktp_widget_destroy(void *obj) noexcept with gil:
+    """Called by Swift when a root widget is removed."""
+    Py_DECREF(<object>obj)
+
+
+# =============================================================================
+# Canvas wrap / release  (called from Swift to create a Python Canvas around
+# Swift's Tvg_Canvas*. Swift owns the lifetime; Cython never frees it.)
+# =============================================================================
+
+cdef public void* ktp_canvas_wrap(void *raw) with gil:
+    """Wrap a Swift-owned Tvg_Canvas* in a Python Canvas object.
+    Returns a void* (PyObject*) with an extra refcount — pass to ktp_canvas_release when done.
+    """
+    cdef Canvas c = Canvas.__new__(Canvas)
+    c._set(<Tvg_Canvas>raw)
+    Py_INCREF(c)  # caller owns this reference
+    return <void*><PyObject*>c
+
+
+cdef public void ktp_canvas_release(void *wrapped) with gil:
+    """Release a Canvas wrapper created by ktp_canvas_wrap."""
+    Py_DECREF(<object>wrapped)
+
+
+# =============================================================================
 # Module-level callback trampolines  (called from Swift without GIL)
 # =============================================================================
 # Each one acquires the GIL, casts `ud` to _KtpWindowStorage, and either
@@ -94,12 +134,13 @@ def window_create(x=None, y=None, width=800, height=600,
 
 # --- Frame (display-link) ---------------------------------------------------
 
-cdef void _cb_frame(double dt, void *ud) noexcept with gil:
-    """Called by Swift each vsync.  Drives one full Kivy idle cycle."""
+cdef void _cb_frame(void *canvas, double dt, void *ud) noexcept with gil:
+    """Called by Swift each vsync. canvas is a void* to a Python Canvas wrapping Swift's Tvg_Canvas."""
     cdef _KtpWindowStorage s = <_KtpWindowStorage>ud
+    cdef Canvas c = <Canvas>canvas
     handler = s._frame_handler
     if handler is not None:
-        handler(dt)
+        handler(c, dt)
 
 
 # --- Mouse -------------------------------------------------------------------
@@ -346,6 +387,16 @@ cdef class _KtpWindowStorage:
     def set_frame_handler(self, handler):
         """Set a callable(dt) invoked every vsync by Swift's display‑link."""
         self._frame_handler = handler
+
+    def add_root_widget(self, widget):
+        """Register a root widget with Swift (called once per widget)."""
+        cdef KtpRootWidget rw
+        Py_INCREF(widget)
+        rw.obj         = <void*>widget
+        rw.canvas_draw = ktp_widget_canvas_draw
+        rw.destroy     = ktp_widget_destroy
+        ktp_window_add_root_widget(self._win, rw)
+        print(f"Added root widget {widget} to window")
 
     # -----------------------------------------------------------------
     # Window lifecycle

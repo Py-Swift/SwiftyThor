@@ -88,7 +88,7 @@ void ktp_window_resize(KtpWindow win, int width, int height);
 // MARK: - Frame Callback  (Swift → Cython, per window)
 // ============================================================================
 
-typedef void (*KtpFrameCb)(double dt, void *ud);
+typedef void (*KtpFrameCb)(void *canvas, double dt, void *ud);
 
 void ktp_window_set_frame_cb(KtpWindow win, KtpFrameCb cb, void *ud);
 
@@ -280,6 +280,25 @@ Tvg_Canvas ktp_window_get_canvas(KtpWindow win);
 
 /// Canvas size in pixels (accounts for display density).
 void ktp_window_get_canvas_size(KtpWindow win, int *out_w, int *out_h);
+
+// ============================================================================
+// MARK: - Root Widget
+// ============================================================================
+
+typedef void (*KtpWidgetCanvasDrawCb)(void *obj, void *canvas);
+typedef void (*KtpWidgetDestroyCb)(void *obj);
+
+typedef struct {
+    void                 *obj;
+    KtpWidgetCanvasDrawCb canvas_draw;
+    KtpWidgetDestroyCb    destroy;
+} KtpRootWidget;
+
+/// Register a root widget. Swift stores it and calls canvas_draw each frame.
+void ktp_window_add_root_widget(KtpWindow win, KtpRootWidget widget);
+
+/// Remove and destroy a previously added root widget.
+void ktp_window_remove_root_widget(KtpWindow win, void *obj);
 
 #ifdef __cplusplus
 }

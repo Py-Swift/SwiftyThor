@@ -134,6 +134,9 @@ final class KtpWindowState {
     var hitTestCb:      KtpHitTestCb?            = nil
     var hitTestUd:      UnsafeMutableRawPointer? = nil
 
+    // Root widgets
+    var rootWidgets: [KtpRootWidget] = []
+
 
     // MARK: - Init
 
